@@ -1,9 +1,0 @@
-services:
-  - type: web
-    name: dmart-recommender
-    env: python
-    plan: free
-    buildCommand: |
-      pip install -r requirements.txt
-    startCommand: |
-      ./setup.sh && streamlit run app.py

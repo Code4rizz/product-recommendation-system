@@ -3,6 +3,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from collections import Counter
 import faiss
+import re
 
 class RecommendationEngine:
     def __init__(self, data_path='DMart_cleaned.csv', embeddings_path='product_embeddings.npy'):
@@ -40,6 +41,30 @@ class RecommendationEngine:
         print(f"✓ Built FAISS index with {self.faiss_index.ntotal} vectors")
         print(f"✓ Dual search mode: Standard (NumPy) & Deep (FAISS)")
     
+    def extract_price_filter(self, query):
+        """Extract price constraints from natural language query"""
+        # Patterns for price filters
+        patterns = [
+            (r'under (?:rs\.?|₹)?\s*(\d+)', 'max'),
+            (r'below (?:rs\.?|₹)?\s*(\d+)', 'max'),
+            (r'less than (?:rs\.?|₹)?\s*(\d+)', 'max'),
+            (r'above (?:rs\.?|₹)?\s*(\d+)', 'min'),
+            (r'over (?:rs\.?|₹)?\s*(\d+)', 'min'),
+            (r'more than (?:rs\.?|₹)?\s*(\d+)', 'min'),
+            (r'between (?:rs\.?|₹)?\s*(\d+)\s*(?:and|to|-)\s*(?:rs\.?|₹)?\s*(\d+)', 'range'),
+        ]
+        
+        for pattern, filter_type in patterns:
+            match = re.search(pattern, query.lower())
+            if match:
+                if filter_type == 'range':
+                    return {'min': int(match.group(1)), 'max': int(match.group(2))}
+                elif filter_type == 'max':
+                    return {'max': int(match.group(1))}
+                else:  # min
+                    return {'min': int(match.group(1))}
+        return None
+    
     def get_user_profile(self, purchase_history):
         """Generate user profile from purchase history"""
         if not purchase_history:
@@ -66,15 +91,30 @@ class RecommendationEngine:
     def get_recommendations(self, user_query, top_n=5, category_filter=None, 
                           min_similarity=0, user_purchase_history=None, deep_search=False):
         """
-        Get product recommendations with dual search modes
+        Get product recommendations with dual search modes and price filtering
         
         Args:
             deep_search: If True, uses FAISS for faster approximate search.
                         If False, uses NumPy for exhaustive exact search.
         """
         try:
+            # Extract price filter from query
+            price_filter = self.extract_price_filter(user_query)
+            
+            # Remove price phrases from query for better semantic search
+            clean_query = re.sub(
+                r'(under|below|above|over|less than|more than|between)\s+(?:rs\.?|₹)?\s*\d+(?:\s*(?:and|to|-)\s*(?:rs\.?|₹)?\s*\d+)?',
+                '', 
+                user_query, 
+                flags=re.IGNORECASE
+            ).strip()
+            
+            # If query becomes empty after cleaning, use original
+            if not clean_query:
+                clean_query = user_query
+            
             # Encode query with BGE prefix
-            query_text = f"query: {user_query.strip()}"
+            query_text = f"query: {clean_query}"
             query_embedding = self.model.encode(
                 [query_text], 
                 convert_to_numpy=True,
@@ -141,6 +181,16 @@ class RecommendationEngine:
                 recommendations['personalized_score'] = recommendations['similarity_score']
                 recommendations['is_personalized'] = False
             
+            # ========================================
+            # APPLY PRICE FILTER
+            # ========================================
+            
+            if price_filter:
+                if 'min' in price_filter:
+                    recommendations = recommendations[recommendations['Price'] >= price_filter['min']]
+                if 'max' in price_filter:
+                    recommendations = recommendations[recommendations['Price'] <= price_filter['max']]
+            
             # Sort and filter
             recommendations = recommendations.sort_values('personalized_score', ascending=False)
             recommendations = recommendations[recommendations['similarity_score'] >= min_similarity]
@@ -150,7 +200,7 @@ class RecommendationEngine:
             
             recommendations = recommendations.reset_index(drop=True)
             
-            return recommendations.head(top_n), None, None
+            return recommendations.head(top_n), price_filter, None
             
         except Exception as e:
             return pd.DataFrame(), None, str(e)

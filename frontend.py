@@ -23,6 +23,7 @@ st.session_state.setdefault("cart", [])
 st.session_state.setdefault("purchase_history", [])
 st.session_state.setdefault("last_results", None)
 st.session_state.setdefault("last_search", "")
+st.session_state.setdefault("last_price_filter", None)
 st.session_state.setdefault("category_filter", "All")
 st.session_state.setdefault("deep_search", False)
 
@@ -64,6 +65,7 @@ with st.sidebar:
             st.session_state["cart"] = []
             st.session_state["last_results"] = None
             st.session_state["last_search"] = ""
+            st.session_state["last_price_filter"] = None
 
         st.button("Clear History", on_click=_clear_history)
     else:
@@ -84,7 +86,7 @@ with tab_search:
     # Search bar & filters row
     r1c1, r1c2, r1c3, r1c4 = st.columns([3, 2, 2, 1])
     with r1c1:
-        search = st.text_input("Search for products", placeholder="e.g., chips, rice, snacks")
+        search = st.text_input("Search for products", placeholder="e.g., chips under 200, rice below 500")
     with r1c2:
         categories = engine.get_categories()
         current_index = categories.index(st.session_state.category_filter) if st.session_state.category_filter in categories else 0
@@ -109,6 +111,17 @@ with tab_search:
             help="Uses FAISS for 10-30x faster approximate search. Best for large catalogs or quick browsing.",
         )
 
+    # Price filter examples
+    with st.expander("💡 Price Filter Examples"):
+        st.markdown("""
+        Try these natural language price filters:
+        - `chips under 200` or `chips below 200`
+        - `rice above 500` or `rice over 500`
+        - `snacks between 50 and 150`
+        - `book less than 300`
+        - `oil more than 100`
+        """)
+
     # On search — compute & persist results
     if search and search_btn:
         user_history = None
@@ -122,7 +135,7 @@ with tab_search:
 
         search_mode = "🚀 FAISS" if st.session_state.deep_search else "🔍 Exact"
         with st.spinner(f"Searching with {search_mode} mode..."):
-            results, _, err = engine.get_recommendations(
+            results, price_filter, err = engine.get_recommendations(
                 user_query=search,
                 top_n=int(num_results),
                 category_filter=st.session_state.category_filter,
@@ -136,6 +149,7 @@ with tab_search:
         else:
             st.session_state.last_results = results
             st.session_state.last_search = search
+            st.session_state.last_price_filter = price_filter
 
     # Always show last results if available
     results = st.session_state.last_results
@@ -147,6 +161,15 @@ with tab_search:
             f"### Results for: *{st.session_state.last_search}* {search_badge}  "
             f"(Category: {st.session_state.category_filter})"
         )
+        
+        # Show active price filter
+        if st.session_state.last_price_filter:
+            filter_text = []
+            if 'min' in st.session_state.last_price_filter:
+                filter_text.append(f"≥₹{st.session_state.last_price_filter['min']}")
+            if 'max' in st.session_state.last_price_filter:
+                filter_text.append(f"≤₹{st.session_state.last_price_filter['max']}")
+            st.info(f"💰 Price filter active: {' & '.join(filter_text)}")
 
         if len(results) == 0:
             st.warning("⚠️ No products found with current filters. Try a different search or category.")
