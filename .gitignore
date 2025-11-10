@@ -1,26 +1,21 @@
-# Python
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.so
-*.egg-info/
-.eggs/
 
-# Virtual environments
+# Virtual environment folders
 venv/
-.env/
 .venv/
+env/
+.env/
 
-# Streamlit
+# Streamlit cache
 .streamlit/
 
-# OS/editor junk
+# OS/editor files
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
-
-# (Optional) big local data not meant for git
-data/
