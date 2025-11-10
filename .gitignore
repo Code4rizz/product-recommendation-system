@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Streamlit
+.streamlit/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# (Optional) big local data not meant for git
+data/
