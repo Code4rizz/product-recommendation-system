@@ -5,45 +5,48 @@ from collections import Counter
 import faiss
 import re
 
+
 class RecommendationEngine:
     def __init__(self, data_path='DMart_cleaned.csv', embeddings_path='product_embeddings.npy'):
-        """Initialize the recommendation engine with dual search modes"""
-        # Load data
+        
+        # Load
+
         self.data = pd.read_csv(data_path)
-        
-        # Ensure Price is numeric
         self.data['Price'] = pd.to_numeric(self.data['Price'], errors='coerce').fillna(0.0)
-        
-        # Load and validate embeddings
         self.embeddings = np.load(embeddings_path).astype('float32')
         
-        # Validate row/embedding match
+        # Validate
+
         if len(self.data) != self.embeddings.shape[0]:
             raise ValueError(
                 f"Row mismatch: {len(self.data)} products but {self.embeddings.shape[0]} embeddings"
             )
         
-        # Verify normalization
+        # Normalize
+
         norms = np.linalg.norm(self.embeddings, axis=1)
         if not np.allclose(norms, 1.0, atol=1e-5):
             print("⚠ Embeddings not normalized, normalizing now...")
             faiss.normalize_L2(self.embeddings)
         
-        # Build FAISS index for deep search
+        # FAISS
+
         self.dimension = self.embeddings.shape[1]
         self.faiss_index = faiss.IndexFlatIP(self.dimension)
         self.faiss_index.add(self.embeddings)
         
-        # Load model
+        # Model
+
         self.model = SentenceTransformer('BAAI/bge-base-en-v1.5')
         
-        print(f"✓ Loaded {len(self.data)} products with {self.dimension}-dim embeddings")
-        print(f"✓ Built FAISS index with {self.faiss_index.ntotal} vectors")
-        print(f"✓ Dual search mode: Standard (NumPy) & Deep (FAISS)")
+        print(f" Loaded {len(self.data)} products with {self.dimension}-dim embeddings")
+        print(f" Built FAISS index with {self.faiss_index.ntotal} vectors")
+        print(f" Dual search mode: Standard (NumPy) & Deep (FAISS)")
     
     def extract_price_filter(self, query):
-        """Extract price constraints from natural language query"""
-        # Patterns for price filters
+
+        # Patterns
+
         patterns = [
             (r'under (?:rs\.?|₹)?\s*(\d+)', 'max'),
             (r'below (?:rs\.?|₹)?\s*(\d+)', 'max'),
@@ -54,6 +57,8 @@ class RecommendationEngine:
             (r'between (?:rs\.?|₹)?\s*(\d+)\s*(?:and|to|-)\s*(?:rs\.?|₹)?\s*(\d+)', 'range'),
         ]
         
+        # Match
+
         for pattern, filter_type in patterns:
             match = re.search(pattern, query.lower())
             if match:
@@ -61,12 +66,12 @@ class RecommendationEngine:
                     return {'min': int(match.group(1)), 'max': int(match.group(2))}
                 elif filter_type == 'max':
                     return {'max': int(match.group(1))}
-                else:  # min
+                else:
                     return {'min': int(match.group(1))}
         return None
     
     def get_user_profile(self, purchase_history):
-        """Generate user profile from purchase history"""
+
         if not purchase_history:
             return {
                 'total_purchases': 0,
@@ -76,6 +81,8 @@ class RecommendationEngine:
                 'price_range': (0, 0)
             }
         
+        # Extract
+
         categories = [p['category'] for p in purchase_history]
         subcategories = [p['subcategory'] for p in purchase_history]
         prices = [p['price'] for p in purchase_history]
@@ -90,18 +97,14 @@ class RecommendationEngine:
     
     def get_recommendations(self, user_query, top_n=5, category_filter=None, 
                           min_similarity=0, user_purchase_history=None, deep_search=False):
-        """
-        Get product recommendations with dual search modes and price filtering
-        
-        Args:
-            deep_search: If True, uses FAISS for faster approximate search.
-                        If False, uses NumPy for exhaustive exact search.
-        """
+       
         try:
-            # Extract price filter from query
+            # Price
+
             price_filter = self.extract_price_filter(user_query)
             
-            # Remove price phrases from query for better semantic search
+            # Clean
+
             clean_query = re.sub(
                 r'(under|below|above|over|less than|more than|between)\s+(?:rs\.?|₹)?\s*\d+(?:\s*(?:and|to|-)\s*(?:rs\.?|₹)?\s*\d+)?',
                 '', 
@@ -109,11 +112,11 @@ class RecommendationEngine:
                 flags=re.IGNORECASE
             ).strip()
             
-            # If query becomes empty after cleaning, use original
             if not clean_query:
                 clean_query = user_query
             
-            # Encode query with BGE prefix
+            # Encode
+
             query_text = f"query: {clean_query.strip()}"
             query_embedding = self.model.encode(
                 [query_text], 
@@ -121,52 +124,50 @@ class RecommendationEngine:
                 normalize_embeddings=True
             )[0].astype('float32')
             
-            # ========================================
-            # DUAL SEARCH MODE
-            # ========================================
-            
+            # Search
+
             if deep_search:
-                # FAISS MODE: Fast approximate search
+
+                # FAISS
+
                 query_faiss = query_embedding.reshape(1, -1)
                 faiss.normalize_L2(query_faiss)
                 
-                # Over-fetch to account for filtering
                 fetch_k = min(top_n * 10, len(self.data))
                 scores, indices = self.faiss_index.search(query_faiss, fetch_k)
                 
                 scores = (scores[0] * 100).round(2)
                 indices = indices[0]
                 
-                # Build recommendations from FAISS results
                 recommendations = self.data.iloc[indices].copy()
                 recommendations['similarity_score'] = scores
                 
             else:
-                # NUMPY MODE: Exhaustive exact search (all products)
+
+                # NumPy
+
                 similarities = (self.embeddings @ query_embedding) * 100
                 
                 recommendations = self.data.copy()
                 recommendations['similarity_score'] = similarities.round(2)
             
-            # ========================================
-            # PERSONALIZATION (same for both modes)
-            # ========================================
-            
+            # Personalization
+
             if user_purchase_history and user_purchase_history.get('categories'):
                 purchased_categories = set(user_purchase_history['categories'])
                 purchased_subcategories = set(user_purchase_history.get('subcategories', []))
                 
-                # Vectorized boost calculation
                 boost = np.ones(len(recommendations))
                 
-                # Only boost items with similarity > 60%
+                # Threshold
+
                 high_similarity = recommendations['similarity_score'] > 60
                 
-                # Subcategory match = 15% boost (only if similarity > 60%)
+                # Boost
+
                 subcategory_match = recommendations['SubCategory'].isin(purchased_subcategories) & high_similarity
                 boost[subcategory_match] = 1.15
                 
-                # Category match = 10% boost (only if similarity > 60%)
                 category_match = recommendations['Category'].isin(purchased_categories) & ~subcategory_match & high_similarity
                 boost[category_match] = 1.10
                 
@@ -176,17 +177,16 @@ class RecommendationEngine:
                 recommendations['personalized_score'] = recommendations['similarity_score']
                 recommendations['is_personalized'] = False
             
-            # ========================================
-            # APPLY PRICE FILTER
-            # ========================================
-            
+            # Filter
+
             if price_filter:
                 if 'min' in price_filter:
                     recommendations = recommendations[recommendations['Price'] >= price_filter['min']]
                 if 'max' in price_filter:
                     recommendations = recommendations[recommendations['Price'] <= price_filter['max']]
             
-            # Sort and filter
+            # Sort
+
             recommendations = recommendations.sort_values('personalized_score', ascending=False)
             recommendations = recommendations[recommendations['similarity_score'] >= min_similarity]
             
@@ -201,15 +201,17 @@ class RecommendationEngine:
             return pd.DataFrame(), None, str(e)
     
     def get_categories(self):
-        """Get list of unique categories with 'All' option"""
-        # Categories to exclude
+        
+        # Exclude
+
         exclude_categories = {
-            'butterfly', 'geep', 'joyo', 'plastic kitchen', 'apron', 
+            'butterfly', 'geep', 'joyo plastics', 'kitchen aprons', 
             'motorbike helmet', 'pigeon', 'plant container', 'raincoat', 
-            'specials', 'syska', 'wonderchef'
+            'specials', 'syska', 'wonderchef','zebronics'
         }
         
-        # Get all categories and filter out excluded ones
+        # Filter
+        
         all_categories = self.data['Category'].unique().tolist()
         filtered_categories = [
             cat for cat in all_categories 
