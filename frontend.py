@@ -5,7 +5,7 @@ from recommendation import RecommendationEngine
 # ---------------------------
 # Page config
 # ---------------------------
-st.set_page_config(page_title="🛒 Smart Product Recommender", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="Product Recommendation System", page_icon="🛒", layout="wide")
 
 # ---------------------------
 # Engine (cached)
@@ -30,12 +30,8 @@ st.session_state.setdefault("deep_search", False)
 # ---------------------------
 # Header / Hero
 # ---------------------------
-left, right = st.columns([4, 1], vertical_alignment="center")
-with left:
-    st.title("🛒 Smart Product Recommender")
-    st.caption("Search products, personalize by your history, and filter by category.")
-with right:
-    st.metric("Cart Items", len(st.session_state.cart))
+st.title("🛒 Product Recommendation System")
+st.caption("Search products, personalize by your history, and filter by category.")
 
 st.divider()
 
@@ -75,8 +71,8 @@ with st.sidebar:
 # Tabs
 # ---------------------------
 tab_search, tab_cart = st.tabs([
-    "🔎 Search & Recommend",
-    f"🧺 Cart ({len(st.session_state.cart)})",
+    "🔍 Search & Recommend",
+    "🛒 Cart",
 ])
 
 # ---------------------------
@@ -100,9 +96,9 @@ with tab_search:
     col1, col2 = st.columns([1, 1])
     with col1:
         personalize = st.toggle(
-            "🌟 Personalize using my purchase history",
+            "🌟 Personalize ",
             value=bool(st.session_state.purchase_history),
-            help="Boosts products from categories you've purchased before (price-aware).",
+            help="Boosts products from categories you've purchased before.",
         )
     with col2:
         st.session_state.deep_search = st.toggle(
@@ -110,17 +106,6 @@ with tab_search:
             value=st.session_state.deep_search,
             help="Uses FAISS for 10-30x faster approximate search. Best for large catalogs or quick browsing.",
         )
-
-    # Price filter examples
-    with st.expander("💡 Price Filter Examples"):
-        st.markdown("""
-        Try these natural language price filters:
-        - `chips under 200` or `chips below 200`
-        - `rice above 500` or `rice over 500`
-        - `snacks between 50 and 150`
-        - `book less than 300`
-        - `oil more than 100`
-        """)
 
     # On search — compute & persist results
     if search and search_btn:
@@ -130,7 +115,6 @@ with tab_search:
             user_history = {
                 "categories": list(profile["categories"].keys()),
                 "subcategories": list(profile["subcategories"].keys()),
-                "avg_price": profile["avg_price"],
             }
 
         search_mode = "🚀 FAISS" if st.session_state.deep_search else "🔍 Exact"
@@ -154,22 +138,9 @@ with tab_search:
     # Always show last results if available
     results = st.session_state.last_results
     if results is None:
-        st.info("💡 Tip: Toggle **Deep Search** for 10-30x faster results on large catalogs!")
+        pass  # No message when no search yet
     else:
-        search_badge = "🚀 FAISS" if st.session_state.deep_search else "🔍 Exact"
-        st.write(
-            f"### Results for: *{st.session_state.last_search}* {search_badge}  "
-            f"(Category: {st.session_state.category_filter})"
-        )
-        
-        # Show active price filter
-        if st.session_state.last_price_filter:
-            filter_text = []
-            if 'min' in st.session_state.last_price_filter:
-                filter_text.append(f"≥₹{st.session_state.last_price_filter['min']}")
-            if 'max' in st.session_state.last_price_filter:
-                filter_text.append(f"≤₹{st.session_state.last_price_filter['max']}")
-            st.info(f"💰 Price filter active: {' & '.join(filter_text)}")
+        st.write(f"### Results for: *{st.session_state.last_search}*")
 
         if len(results) == 0:
             st.warning("⚠️ No products found with current filters. Try a different search or category.")
@@ -201,7 +172,7 @@ with tab_search:
 
                     with c3:
                         btn_key = f"add_{i}_{row['Name']}"
-                        if st.button("Add to cart", key=btn_key, use_container_width=True):
+                        if st.button("🛒 Add to cart", key=btn_key, use_container_width=True):
                             st.session_state.cart.append(
                                 {
                                     "name": row["Name"],
@@ -210,15 +181,11 @@ with tab_search:
                                     "subcategory": row["SubCategory"],
                                 }
                             )
-                            st.toast("✓ Added to cart", icon="🧺")
-                            st.rerun()
+                            st.success(f"✅ Added to cart!")
 
             # Show legend
-            legend_items = []
             if results['is_personalized'].any():
-                legend_items.append("⭐ = Personalized")
-            legend_items.append(f"🚀 = FAISS" if st.session_state.deep_search else "🔍 = Exact Search")
-            st.caption(" | ".join(legend_items))
+                st.caption("⭐ = Personalized")
 
 # ---------------------------
 # Cart Tab

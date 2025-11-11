@@ -114,7 +114,7 @@ class RecommendationEngine:
                 clean_query = user_query
             
             # Encode query with BGE prefix
-            query_text = f"query: {clean_query}"
+            query_text = f"query: {clean_query.strip()}"
             query_embedding = self.model.encode(
                 [query_text], 
                 convert_to_numpy=True,
@@ -155,25 +155,20 @@ class RecommendationEngine:
             if user_purchase_history and user_purchase_history.get('categories'):
                 purchased_categories = set(user_purchase_history['categories'])
                 purchased_subcategories = set(user_purchase_history.get('subcategories', []))
-                user_avg_price = user_purchase_history.get('avg_price', 0)
                 
                 # Vectorized boost calculation
                 boost = np.ones(len(recommendations))
                 
-                # Subcategory match = 15% boost
-                subcategory_match = recommendations['SubCategory'].isin(purchased_subcategories)
+                # Only boost items with similarity > 60%
+                high_similarity = recommendations['similarity_score'] > 60
+                
+                # Subcategory match = 15% boost (only if similarity > 60%)
+                subcategory_match = recommendations['SubCategory'].isin(purchased_subcategories) & high_similarity
                 boost[subcategory_match] = 1.15
                 
-                # Category match = 10% boost
-                category_match = recommendations['Category'].isin(purchased_categories) & ~subcategory_match
+                # Category match = 10% boost (only if similarity > 60%)
+                category_match = recommendations['Category'].isin(purchased_categories) & ~subcategory_match & high_similarity
                 boost[category_match] = 1.10
-                
-                # Price-aware: reduce boost for expensive items
-                if user_avg_price > 0:
-                    price_ratio = recommendations['Price'] / user_avg_price
-                    boost[price_ratio > 3.0] = 1.0
-                    expensive_mask = (price_ratio > 2.0) & (price_ratio <= 3.0)
-                    boost[expensive_mask] *= 0.7
                 
                 recommendations['personalized_score'] = (recommendations['similarity_score'] * boost).round(2)
                 recommendations['is_personalized'] = subcategory_match | category_match
@@ -207,5 +202,18 @@ class RecommendationEngine:
     
     def get_categories(self):
         """Get list of unique categories with 'All' option"""
-        categories = sorted(self.data['Category'].unique().tolist())
-        return ["All"] + categories
+        # Categories to exclude
+        exclude_categories = {
+            'butterfly', 'geep', 'joyo', 'plastic kitchen', 'apron', 
+            'motorbike helmet', 'pigeon', 'plant container', 'raincoat', 
+            'specials', 'syska', 'wonderchef'
+        }
+        
+        # Get all categories and filter out excluded ones
+        all_categories = self.data['Category'].unique().tolist()
+        filtered_categories = [
+            cat for cat in all_categories 
+            if cat.lower() not in exclude_categories
+        ]
+        
+        return ["All"] + sorted(filtered_categories)
